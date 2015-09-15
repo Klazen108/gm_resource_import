@@ -14,7 +14,7 @@ import os
 import sys
 import traceback
 import ntpath
-from os.path import join
+from os.path import join as pjoin
 import re
 import codecs
 import shutil
@@ -22,22 +22,35 @@ import xml.etree.ElementTree as ET
 import copy
 
 def path_leaf(path):
-    head, tail = ntpath.split(path)
-    return tail or ntpath.basename(head)
+	head, tail = ntpath.split(path)
+	return tail or ntpath.basename(head)
 
+#function child_with_name
+##Finds an XML node under 'parent' with a name attribute matching 'name'
+#param parent: the parent XML node whose children we want to scan
+#param name: the value of the name attribute we want to match
 def child_with_name(parent,name):
 	return parent.find("*[@name='"+name+"']")
 
-def pjoin(a,b):
-	return os.path.join(a,b)
-	
+#function child_dirs
+##Returns all child directories in the parent directory
+#param parent_path: the directory to scan
 def child_dirs(parent_path):
 	return [d for d in os.listdir(parent_path) if os.path.isdir(pjoin(parent_path,d))]
-	
+
+#function child_files
+##Returns all child filenames in the parent directory
+#param parent_path: the directory to scan
 def child_files(parent_path):
 	return [f for f in os.listdir(parent_path) if os.path.isfile(pjoin(parent_path,f))]
 
-def recursive_copy(target_path,source_path,group_name,source_node,target_node):
+#function recursive_copy
+##copies all new XML resource definitions from the source project to the target project
+##Skips existing elements, and performs a recursive traversal of the XML tree
+#param group_name: the name of the XML element in this structure that comprises a "group" (for example, sprites for sprite groups)
+#param source_node: the current source XML element we're working from
+#param target_node: the current target XML element we're copying to
+def recursive_copy(group_name,source_node,target_node):
 	#get all the nodes representing groups
 	source_groups = [e for e in source_node if e.tag==group_name]
 	
@@ -58,24 +71,37 @@ def recursive_copy(target_path,source_path,group_name,source_node,target_node):
 			target_group = ET.Element(cur_group.tag,name=cur_group.get("name"))
 			target_node.append(target_group)
 		
-		recursive_copy(pjoin(target_path,folder_name),pjoin(source_path,folder_name),group_name,cur_group,target_group)
+		recursive_copy(group_name,cur_group,target_group)
 
-def recursive_file_copy(source_path,target_path):
-	
+#function recursive_file_copy
+##copies a source directory structure to a target directory structure, for all elements that don't already exist
+#param source_path: the source path to copy from
+#param target_path: the target path to copy to
+#param skip_files: if true, skips the files in this source directory, and just goes straight to the child directories
+def recursive_file_copy(source_path,target_path,skip_files):
 	#make a group if it doesn't exist
 	if not os.path.exists(target_path):
 		print("mkdir: "+target_path)
 		os.mkdirs(target_path)
 	
-	dirs = child_dirs(source_path)
-	files = child_files(source_path)
-	for file in files:
-		if not os.path.exists(pjoin(target_path,file)):
-			print("copy:"+file)
-			shutil.copyfile(pjoin(source_path,file),pjoin(target_path,file))
-	for dir in dirs:
-		recursive_file_copy(pjoin(source_path,dir),pjoin(target_path,dir))
+	#copy the files unless we're skipping here
+	if not skip_files:
+		files = child_files(source_path)
+		for file in files:
+			if not os.path.exists(pjoin(target_path,file)):
+				print("copy: "+file)
+				shutil.copyfile(pjoin(source_path,file),pjoin(target_path,file))
 	
+	#recurse into the directories
+	dirs = child_dirs(source_path)
+	for dir in dirs:
+		recursive_file_copy(pjoin(source_path,dir),pjoin(target_path,dir),False)
+
+#function main
+##Copies all new resources from a GMStudio project into another
+#param target_path: the path of the target project to copy to (the folder the .project.gmx is contained in)
+#param source_path: the path of the source project to copy from (the folder the .project.gmx is contained in)
+#param collab_id: a string to name the folder in which the new resources are copied in GMStudio
 def main(target_path,source_path,collab_id):
 	if not os.path.exists(source_path):
 		print("Source path '"+source_path+"' doesn't exist! Please check and try again.")
@@ -83,7 +109,7 @@ def main(target_path,source_path,collab_id):
 	if not os.path.exists(target_path):
 		print("Target path '"+target_path+"' doesn't exist! Please check and try again.")
 		sys.exit(-2)
-		
+	
 	print("Target project: "+target_path)
 	print("Source project: "+source_path)
 	print("\n")
@@ -93,17 +119,21 @@ def main(target_path,source_path,collab_id):
 	t_gmx = next((os.path.join(target_path,f) for f in os.listdir(target_path) if f.endswith(".gmx")), None)
 	if t_gmx is None:
 		print("No .project.gmx file found in target directory '"+target_path+"'! Please check and try again.")
-	#files = [os.path.join(target_path,f) for f in os.listdir(target_path) if f.endswith(".gmx")]
-	#t_gmx = files[0] #todo - make sure it exists
+		sys.exit(-3)
 	target_tree = ET.parse(t_gmx)
 	target_root = target_tree.getroot()
+	
+	#backup target project file
+	print("backing up target project")
+	if (os.path.exists(t_gmx+".bkup")):
+		os.remove(t_gmx+".bkup")
+	shutil.copyfile(t_gmx,t_gmx+".bkup")
 	
 	#open the source project XML
 	s_gmx = next((os.path.join(source_path,f) for f in os.listdir(source_path) if f.endswith(".gmx")), None)
 	if s_gmx is None:
 		print("No .project.gmx file found in source directory '"+source_path+"'! Please check and try again.")
-	#files = [os.path.join(source_path,f) for f in os.listdir(source_path) if f.endswith(".gmx")]
-	#s_gmx = files[0] #todo - make sure it exists
+		sys.exit(-4)
 	source_tree = ET.parse(s_gmx)
 	source_root = source_tree.getroot()
 	
@@ -122,13 +152,14 @@ def main(target_path,source_path,collab_id):
 			target_root.append(target_node)
 		
 		#copy the source structure to the target structure
-		recursive_copy(pjoin(target_path,folder_name),pjoin(source_path,folder_name),cur_type,source_node,target_node)
+		recursive_copy(cur_type,source_node,target_node)
 	#print(ET.tostring(root, 'utf-8'))
 	print("Writing project file to disk...")
-	source_tree.write(t_gmx+".new")
+	target_tree.write(t_gmx)
+	print("Project file written!\n")
 	
 	print("Copying resource files from source to target...")
-	recursive_file_copy(source_path,target_path)
+	recursive_file_copy(source_path,target_path,True)
 	print("Complete!")
 
 if __name__ == "__main__":
