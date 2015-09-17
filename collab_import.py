@@ -4,6 +4,7 @@
 # Date        : 2015-09-11
 # Description : Imports collab resources into main project
 ####################################################################
+#print(ET.tostring(root, 'utf-8'))
 
 #<assets>
 #  <sounds name="sound"> example of resource type - name attribute is folder name, tag name is group name
@@ -49,32 +50,28 @@ def child_files(parent_path):
 ##Skips existing elements, and performs a recursive traversal of the XML tree
 #param group_name: the name of the XML element in this structure that comprises a "group" (for example, sprites for sprite groups)
 #param source_node: the current source XML element we're working from
-#param target_node: the current target XML element we're copying to
+#param target_node: the corresponding target element to check for the resource
+#param target_copy_to_node: the target XML element to copy the resource reference to
 def recursive_copy(group_name,source_node,target_node,target_copy_to_node):
 	#get all the nodes representing groups
 	source_groups = [e for e in source_node if e.tag==group_name]
 	
-	target_group_names = [g.get("name") for g in target_node if g.tag==group_name]
 	target_entry_names = [g.text for g in target_node if not g.tag==group_name]
 	
 	#all nodes that aren't groups must be entries, copy those that don't already exist
 	for entry in [e for e in source_node if e not in source_groups and e.text not in target_entry_names]:
 		target_copy_to_node.append(copy.deepcopy(entry))
 		print("\tNew entry: " +entry.text)
-		#copy the entry
 	
 	#for all nodes that are groups, traverse them
 	for cur_group in source_groups:
 		folder_name = cur_group.get("name")
 		target_group = child_with_name(target_node,folder_name)
+		#use an empty list if there's no corresponding target node, since we'll need to copy all files anyway
 		if (target_group is None): 
 			target_group = []
-		#if (target_group is None):
-		#	target_group = ET.Element(cur_group.tag,name=cur_group.get("name"))
-		#	target_node.append(target_group)
 		
 		recursive_copy(group_name,cur_group,target_group,target_copy_to_node)
-		#recursive_copy(group_name,cur_group,target_node)
 
 #function recursive_file_copy
 ##copies a source directory structure to a target directory structure, for all elements that don't already exist
@@ -92,7 +89,7 @@ def recursive_file_copy(source_path,target_path,skip_files):
 		files = child_files(source_path)
 		for file in files:
 			if not os.path.exists(pjoin(target_path,file)):
-				print("copy: "+file)
+				print("\t"+file)
 				shutil.copyfile(pjoin(source_path,file),pjoin(target_path,file))
 	
 	#recurse into the directories
@@ -104,8 +101,8 @@ def recursive_file_copy(source_path,target_path,skip_files):
 ##Copies all new resources from a GMStudio project into another
 #param target_path: the path of the target project to copy to (the folder the .project.gmx is contained in)
 #param source_path: the path of the source project to copy from (the folder the .project.gmx is contained in)
-#param collab_id: a string to name the folder in which the new resources are copied in GMStudio
-def main(target_path,source_path,collab_id):
+#param folder_name: a string to name the folder in which the new resources are copied in GMStudio
+def main(target_path,source_path,folder_name):
 	if not os.path.exists(source_path):
 		print("Source path '"+source_path+"' doesn't exist! Please check and try again.")
 		sys.exit(-1)
@@ -140,36 +137,36 @@ def main(target_path,source_path,collab_id):
 	source_tree = ET.parse(s_gmx)
 	source_root = source_tree.getroot()
 	
-	#go over each source type
+	#analyze each source type (sprite, background, etc)
 	for source_node in source_root:
 		cur_type = source_node.tag
-		folder_name = source_node.get("name")
-		if (folder_name is None): #skip groups without names, we're not interested in those
+		if (source_node.get("name") is None): #skip groups without names, we're not interested in those
 			continue
 		print("Analyzing: "+cur_type)
 		
 		#find the corresponding target node
 		target_node = target_root.find(source_node.tag)
-		#if target_node is None: #if it's not there, make a new one
-		#	target_node = ET.Element(source_node.tag, name=folder_name)
-		#	target_root.append(target_node)
 		
 		#make sure there's a group to import into
-		target_group = child_with_name(target_node,collab_id)
+		target_group = child_with_name(target_node,folder_name)
 		if (target_group is None):
-			target_group = ET.Element(cur_type,name=collab_id)
+			target_group = ET.Element(cur_type,name=folder_name)
 			target_node.append(target_group)
 		
 		#copy the source structure to the target structure
+		print(ET.tostring(target_group, 'utf-8'))
 		recursive_copy(cur_type,source_node,target_node,target_group)
-	#print(ET.tostring(root, 'utf-8'))
+	
+	#save the project
 	print("Writing project file to disk...")
 	target_tree.write(t_gmx)
 	print("Project file written!\n")
 	
 	print("Copying resource files from source to target...")
 	recursive_file_copy(source_path,target_path,True)
-	print("Complete!")
+	print("Resources copied!")
+	
+	print("\nComplete!")
 
 if __name__ == "__main__":
 	main(sys.argv[1],sys.argv[2],sys.argv[3])
