@@ -50,7 +50,7 @@ def child_files(parent_path):
 #param group_name: the name of the XML element in this structure that comprises a "group" (for example, sprites for sprite groups)
 #param source_node: the current source XML element we're working from
 #param target_node: the current target XML element we're copying to
-def recursive_copy(group_name,source_node,target_node):
+def recursive_copy(group_name,source_node,target_node,target_copy_to_node):
 	#get all the nodes representing groups
 	source_groups = [e for e in source_node if e.tag==group_name]
 	
@@ -59,7 +59,7 @@ def recursive_copy(group_name,source_node,target_node):
 	
 	#all nodes that aren't groups must be entries, copy those that don't already exist
 	for entry in [e for e in source_node if e not in source_groups and e.text not in target_entry_names]:
-		target_node.append(copy.deepcopy(entry))
+		target_copy_to_node.append(copy.deepcopy(entry))
 		print("\tNew entry: " +entry.text)
 		#copy the entry
 	
@@ -67,11 +67,14 @@ def recursive_copy(group_name,source_node,target_node):
 	for cur_group in source_groups:
 		folder_name = cur_group.get("name")
 		target_group = child_with_name(target_node,folder_name)
-		if (target_group is None):
-			target_group = ET.Element(cur_group.tag,name=cur_group.get("name"))
-			target_node.append(target_group)
+		if (target_group is None): 
+			target_group = []
+		#if (target_group is None):
+		#	target_group = ET.Element(cur_group.tag,name=cur_group.get("name"))
+		#	target_node.append(target_group)
 		
-		recursive_copy(group_name,cur_group,target_group)
+		recursive_copy(group_name,cur_group,target_group,target_copy_to_node)
+		#recursive_copy(group_name,cur_group,target_node)
 
 #function recursive_file_copy
 ##copies a source directory structure to a target directory structure, for all elements that don't already exist
@@ -147,12 +150,18 @@ def main(target_path,source_path,collab_id):
 		
 		#find the corresponding target node
 		target_node = target_root.find(source_node.tag)
-		if target_node is None: #if it's not there, make a new one
-			target_node = ET.Element(source_node.tag, name=folder_name)
-			target_root.append(target_node)
+		#if target_node is None: #if it's not there, make a new one
+		#	target_node = ET.Element(source_node.tag, name=folder_name)
+		#	target_root.append(target_node)
+		
+		#make sure there's a group to import into
+		target_group = child_with_name(target_node,collab_id)
+		if (target_group is None):
+			target_group = ET.Element(cur_type,name=collab_id)
+			target_node.append(target_group)
 		
 		#copy the source structure to the target structure
-		recursive_copy(cur_type,source_node,target_node)
+		recursive_copy(cur_type,source_node,target_node,target_group)
 	#print(ET.tostring(root, 'utf-8'))
 	print("Writing project file to disk...")
 	target_tree.write(t_gmx)
